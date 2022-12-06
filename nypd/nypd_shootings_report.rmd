@@ -1,0 +1,169 @@
+---
+title: "Exploration and Analysis of NYPD Shooting Data"
+author: "Ami Ganguli"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library('ProjectTemplate')
+load.project()
+
+```
+# NYPD Shooting Incident Data
+
+In this study we will explore the NYPD shooting statistics in order to the times when shootings are more likely.  We will use this data to generate a hypothesis about why most shootings occur.  
+
+## Download the data set
+
+The dataset is available from the City of New York open data web site: https://data.cityofnewyork.us
+
+```{r load_data}
+library(readr)
+shootings <- read_csv('https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD')
+
+```
+
+## Tidy the data
+
+We can explore the first few rows of the data in order to get an idea of how best to tidy it.
+
+```{r explore}
+head(shootings)
+```
+
+Since we're mostly interested in when shootings occur, we can eliminate the columns having to do with location.  Since we're particularly interested in the time of the shootings, it's important to convert the date and time from string format to proper date and time values.
+
+```{r tidy_data}
+library(tidyverse)
+library(lubridate)
+summary(shootings)
+shootings %>% count(OCCUR_DATE)
+shootings %>% count(OCCUR_TIME)
+shootings %>% count(BORO)
+shootings %>% count(PRECINCT)
+shootings_clean <- shootings %>% 
+  select(c(INCIDENT_KEY, OCCUR_DATE, OCCUR_TIME, BORO, PRECINCT)) %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE), DAY_OF_WEEK = factor(weekdays(OCCUR_DATE), c("Sunday", "Monday", 
+    "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")), BORO = factor(BORO))
+```
+```{r clean}
+head(shootings_clean)
+```
+
+## Analysis
+
+In order to find patterns in the data, it's helpful to generate counts of shootings by year, month, hour, and day-of-week.
+
+```{r analysis}
+library(dplyr)
+
+shootings_by_year <- shootings_clean %>% 
+  mutate(OCCUR_YEAR = strtoi(format(as.POSIXct(OCCUR_DATE), format="%Y")), base=10L) %>%
+  select(c(OCCUR_YEAR)) %>%
+  group_by(OCCUR_YEAR) %>%
+  summarize(count=n())
+
+shootings_by_month <- shootings_clean %>% 
+  mutate(OCCUR_MONTH = format(as.POSIXct(OCCUR_DATE), format="%m")) %>%
+  select(c(OCCUR_MONTH)) %>%
+  group_by(OCCUR_MONTH) %>%
+  summarize(count=n())
+
+shootings_by_hour <- shootings_clean %>% 
+  mutate(OCCUR_HOUR = format(as.POSIXct(OCCUR_TIME), format="%H")) %>%
+  select(c(OCCUR_HOUR)) %>%
+  group_by(OCCUR_HOUR) %>%
+  summarize(count=n())
+
+shootings_by_weekday <- shootings_clean %>% 
+  arrange(DAY_OF_WEEK) %>%
+  group_by(DAY_OF_WEEK) %>%
+  summarize(count=n())
+
+```
+
+
+## Visualization
+
+We graph the data by hour, weekday, year, and month in order to find patterns.
+
+```{r visualization}
+library(ggplot2)
+shootings_by_hour %>%
+  ggplot(aes(x=OCCUR_HOUR, y=count)) +
+  geom_line(aes(color="count")) +
+  geom_point(aes(color="count"))
+
+shootings_by_weekday %>% 
+  ggplot(aes(x=DAY_OF_WEEK, y=count)) +
+  geom_bar(stat="identity")
+
+shootings_by_year %>%
+  ggplot(aes(x=OCCUR_YEAR, y=count)) +
+  geom_line(aes(color="count")) +
+  geom_point(aes(color="count"))
+
+shootings_by_month %>%
+  ggplot(aes(x=OCCUR_MONTH, y=count)) +
+  geom_line(aes(color="count")) +
+  geom_point(aes(color="count"))
+
+
+```
+
+## Modeling
+
+The monthly, hourly, and day-of-week data don't lend themselves well to a linear model, but the yearly data does appear to have a trend between 2006 and 2019.  2005 is likely low because of incomplete data, while 2020 and 2021 are likely affected by people being under unusual stress due to COVID.
+
+We can fit a linear model to the 2006-2019 data:
+
+```{r model}
+
+shootings_2006_2019 <- shootings_by_year %>% filter(between(OCCUR_YEAR, 2006, 2019))
+lmshoot <- lm(count ~ OCCUR_YEAR, data=shootings_2006_2019)
+summary(lmshoot)
+shootings_2006_2019 %>%
+  ggplot(aes(x=OCCUR_YEAR, y=count)) +
+  geom_line(aes(color="count")) +
+  geom_point(aes(color="count")) +
+  geom_smooth(method='lm')
+
+```
+
+
+## Analysis
+
+We see that, between 2006 and 2019, there was a clear downward trend in the number of shootings.
+
+The majority of shootings take place at night, with the peak at 11pm and the lowest number at around 9am. The difference is quite dramatic, with more than 10 times more shootings at 11pm than at 9am.
+
+There are also more shootings on weekends than on weekdays, with the majority apparently happening on Saturday night.
+
+The monthly data shows that there are over twice as many shootings in July and August than in February.  Generally, there are more shootings in the summer than in the winter.
+
+## Conclusion and hypothesis
+
+The conclusion from the data is that there are strong cyclical patterns in the number of shootings, with more shootings at night, on weekends, and in the summer.
+
+My hypothesis, which we would need to test with further research, is that most shootings are somehow associated with drinking and paryting.  In the winter, more people stay inside, while in the summer schools are out and people are having fun in the sun.  Similarly, drinking tends to be an evening and weekend activity.
+
+
+## Bias Identification
+
+I probably have a strong bias with regards to shootings because my exposure to guns and gun violence is mostly from the news. I have
+an idea in my head about what sort of environments and situations lead to shootings, but my ideas aren't based on research or real
+world experience.
+
+My preconceived ideas my lead me to read things into the data that confirm my bias.  Specifically, I'm assuming that gun violence happens when young men go out partrying.  That would explain why there's more gun violence at "party times" - in the summer when people are out more, on weekends, and at night. The data, however, doesn't actually tell us why these times see more shootings.  There may be other explanations - for example the simple fact that there are more people out in general might be enough to explain it, without partrying being a factor at all.
+
+Knowing that this might be a bias, I could seek more data that either supports or refutes my explanation, or that offers an alternative explanation.
+
+## Session info
+
+```{r session_info}
+sessionInfo()
+```
